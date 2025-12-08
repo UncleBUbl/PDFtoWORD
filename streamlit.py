@@ -2,166 +2,137 @@ import streamlit as st
 import google.generativeai as genai
 from docx import Document
 from io import BytesIO
+import base64
 
-# 1. Page Config
-st.set_page_config(
-    page_title="DocuGenius AI (Gemini 3)",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- CONFIGURATION ---
+st.set_page_config(layout="wide", page_title="DocuGenius Pro", page_icon="📑")
 
-# 2. Custom CSS
+# --- CSS STYLING ---
 st.markdown("""
 <style>
-    .stApp { background-color: #f0f2f6; font-family: 'Helvetica Neue', sans-serif; }
-    #MainMenu, footer, header { visibility: hidden; }
-    
-    /* Card Container */
-    [data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
-        background-color: white;
-        padding: 2rem;
-        border-radius: 15px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-        max-width: 900px;
-        margin: auto;
-    }
-
-    /* Titles */
-    .title-text {
-        text-align: center;
-        background: -webkit-linear-gradient(45deg, #4285F4, #9B72CB);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 800;
-        font-size: 3rem;
-        margin-bottom: 0.5rem;
-    }
-    .subtitle-text { text-align: center; color: #5f6368; font-size: 1.2rem; margin-bottom: 2rem; }
-
-    /* Text Area for Editing */
-    textarea {
-        font-size: 1rem !important;
-        font-family: 'Courier New', monospace !important;
-        background-color: #f8f9fa !important;
-        border: 1px solid #e0e0e0 !important;
-    }
+    .stApp { background-color: #f4f6f9; }
+    .main-header { font-size: 2.5rem; font-weight: 700; color: #1e3a8a; text-align: center; }
+    /* Make the text area taller and monospace for easier editing */
+    .stTextArea textarea { height: 600px; font-family: 'Courier New', monospace; }
 </style>
 """, unsafe_allow_html=True)
 
-# 3. Session State Initialization
-if 'generated_content' not in st.session_state:
-    st.session_state.generated_content = ""
-if 'file_name' not in st.session_state:
-    st.session_state.file_name = "document"
+# --- HELPER: Display PDF in Browser ---
+def display_pdf(uploaded_file):
+    # Read file as bytes:
+    bytes_data = uploaded_file.getvalue()
+    # Convert to base64
+    base64_pdf = base64.b64encode(bytes_data).decode('utf-8')
+    # Embed PDF in HTML
+    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
 
-# 4. Helper Function: Convert Markdown text to Docx object
+# --- HELPER: Generate Word Doc ---
 def generate_docx(text_content):
     doc = Document()
-    doc.add_heading(st.session_state.file_name, 0)
-
     for line in text_content.split('\n'):
-        line = line.strip()
-        if not line:
-            continue
-        
-        if line.startswith('# '):
-            doc.add_heading(line[2:], level=1)
-        elif line.startswith('## '):
-            doc.add_heading(line[2:], level=2)
-        elif line.startswith('### '):
-            doc.add_heading(line[2:], level=3)
-        elif line.startswith('* ') or line.startswith('- '):
-            doc.add_paragraph(line[2:], style='List Bullet')
-        else:
-            doc.add_paragraph(line)
-    
+        if line.startswith('# '): doc.add_heading(line[2:], level=1)
+        elif line.startswith('## '): doc.add_heading(line[2:], level=2)
+        elif line.startswith('### '): doc.add_heading(line[2:], level=3)
+        elif line.startswith('* '): doc.add_paragraph(line[2:], style='List Bullet')
+        else: doc.add_paragraph(line)
     bio = BytesIO()
     doc.save(bio)
     return bio.getvalue()
 
-# 5. Main App Logic
+# --- MAIN APP ---
 def main():
-    st.markdown('<div class="title-text">DocuGenius AI</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle-text">Convert & Edit PDFs with <b>Gemini 3 Pro</b></div>', unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns([1, 8, 1])
-
-    with col2:
-        # -- API Key Input --
+    # 1. Sidebar - Settings
+    with st.sidebar:
+        st.title("⚙️ Settings")
+        
+        # API Key
         try:
             api_key = st.secrets["GOOGLE_API_KEY"]
+            st.success("API Key Found ✅")
         except:
-            api_key = st.text_input("🔑 Enter Gemini API Key:", type="password")
+            api_key = st.text_input("Gemini API Key", type="password")
 
-        if api_key:
-            genai.configure(api_key=api_key)
+        st.divider()
+        
+        # AI Customization
+        st.subheader("Conversion Style")
+        conversion_mode = st.radio("Mode:", ["Exact Transcription", "Summarize", "Translate to English", "Fix Grammar"])
+        
+        st.info("💡 'Exact Transcription' tries to keep the layout same. Others will change the text.")
 
-        # -- File Upload Section --
-        # Only show upload if we haven't generated content yet OR if user wants to start over
-        if not st.session_state.generated_content:
-            uploaded_file = st.file_uploader("📂 Drag & Drop PDF", type=['pdf'])
+    # 2. Main Area
+    st.markdown('<div class="main-header">DocuGenius Pro 🚀</div>', unsafe_allow_html=True)
 
-            if uploaded_file and st.button("✨ Convert with Gemini 3 Pro", type="primary"):
-                if not api_key:
-                    st.error("Please provide an API Key first.")
-                else:
-                    with st.spinner("🚀 Analyzing text structure..."):
-                        try:
-                            # Gemini 3 Pro Call
-                            model = genai.GenerativeModel('gemini-3-pro-preview')
-                            prompt = """
-                            Extract all text from this PDF.
-                            - Format as clean Markdown (# for headers, * for bullets).
-                            - Preserve tables and logical flow.
-                            - NO conversational filler.
-                            """
-                            response = model.generate_content([
-                                {'mime_type': 'application/pdf', 'data': uploaded_file.getvalue()},
-                                prompt
-                            ])
-                            
-                            # Save to Session State
-                            st.session_state.generated_content = response.text
-                            st.session_state.file_name = uploaded_file.name.split('.')[0]
-                            st.rerun() # Refresh to show editor
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+    if 'generated_content' not in st.session_state:
+        st.session_state.generated_content = ""
 
-        # -- Editor Section (Shows after conversion) --
-        else:
-            st.success("✅ Conversion successful! You can edit the text below before downloading.")
+    # Upload Area
+    if not st.session_state.generated_content:
+        uploaded_file = st.file_uploader("Upload PDF", type=['pdf'])
+        
+        if uploaded_file and st.button("Start Processing", type="primary"):
+            if not api_key:
+                st.error("Please enter an API Key in the Sidebar.")
+            else:
+                genai.configure(api_key=api_key)
+                with st.spinner("🤖 Reading Document..."):
+                    try:
+                        model = genai.GenerativeModel('gemini-3-pro-preview')
+                        
+                        # Dynamic Prompt based on Sidebar selection
+                        base_prompt = "Extract text from this PDF."
+                        if conversion_mode == "Exact Transcription":
+                            instruction = "Keep layout identical. Use Markdown headers (#) and bullets (*). Output raw text only."
+                        elif conversion_mode == "Summarize":
+                            instruction = "Summarize the key points of this document in Markdown bullet points."
+                        elif conversion_mode == "Translate to English":
+                            instruction = "Translate all text to English. Maintain original formatting."
+                        elif conversion_mode == "Fix Grammar":
+                            instruction = "Correct all grammar and spelling mistakes. Keep original meaning and formatting."
+                        
+                        full_prompt = f"{base_prompt} {instruction}"
+
+                        response = model.generate_content([
+                            {'mime_type': 'application/pdf', 'data': uploaded_file.getvalue()},
+                            full_prompt
+                        ])
+                        
+                        st.session_state.generated_content = response.text
+                        st.session_state.uploaded_file = uploaded_file # Save file for preview
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+    # 3. Editor View (Split Screen)
+    else:
+        col1, col2 = st.columns([1, 1])
+
+        with col1:
+            st.subheader("📄 Original PDF")
+            # Show the PDF used
+            if 'uploaded_file' in st.session_state:
+                display_pdf(st.session_state.uploaded_file)
+
+        with col2:
+            st.subheader("📝 Editable Text")
+            edited_text = st.text_area("Make changes here:", value=st.session_state.generated_content, height=550)
+            st.session_state.generated_content = edited_text
             
-            # 1. The Editor
-            # The 'value' is read from state, and changes update the key 'generated_content' automatically
-            edited_text = st.text_area(
-                "📝 Edit Document Content (Markdown format supported):", 
-                value=st.session_state.generated_content,
-                height=400
+            # Download Logic
+            docx = generate_docx(st.session_state.generated_content)
+            st.download_button(
+                "⬇️ Download Word Doc", 
+                data=docx, 
+                file_name="converted.docx", 
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+                use_container_width=True
             )
             
-            # Update state explicitly just in case
-            st.session_state.generated_content = edited_text
-
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                # 2. Download Button
-                docx_file = generate_docx(st.session_state.generated_content)
-                st.download_button(
-                    label="⬇️ Download Word Doc",
-                    data=docx_file,
-                    file_name=f"{st.session_state.file_name}_edited.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    type="primary",
-                    use_container_width=True
-                )
-
-            with col_b:
-                # 3. Reset Button
-                if st.button("🔄 Start Over / New File", use_container_width=True):
-                    st.session_state.generated_content = ""
-                    st.rerun()
+            if st.button("🔄 Start New File"):
+                st.session_state.generated_content = ""
+                st.rerun()
 
 if __name__ == "__main__":
     main()
