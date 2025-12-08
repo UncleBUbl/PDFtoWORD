@@ -1,20 +1,18 @@
 import streamlit as st
 import google.generativeai as genai
 from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 from io import BytesIO
 import base64
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="DocuGenius Pro", page_icon="📑")
+st.set_page_config(layout="wide", page_title="DocuGenius Pro (Gemini 3)", page_icon="⚡")
 
 # --- CSS STYLING ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
     
-    /* Make the editor font monospace so tables align visually in the browser */
+    /* Monospace font for editor so tables align visually */
     .stTextArea textarea { 
         font-family: 'Courier New', monospace; 
         font-size: 14px; 
@@ -22,8 +20,8 @@ st.markdown("""
     }
     
     .main-header { 
-        font-size: 2rem; 
-        font-weight: 700; 
+        font-size: 2.5rem; 
+        font-weight: 800; 
         color: #1a73e8; 
         text-align: center; 
         margin-bottom: 2rem;
@@ -33,67 +31,55 @@ st.markdown("""
 
 # --- HELPER: Display PDF ---
 def display_pdf(pdf_bytes):
-    """
-    Displays the PDF using an <embed> tag which is more robust than iframe.
-    """
+    """Displays PDF using <embed> to prevent losing it on refresh."""
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
     pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800px" type="application/pdf">'
     st.markdown(pdf_display, unsafe_allow_html=True)
 
-# --- HELPER: Advanced Markdown to Docx ---
+# --- HELPER: Advanced Markdown Tables to Docx ---
 def create_table_from_markdown(doc, table_lines):
-    """
-    Parses a list of Markdown table lines and adds a real table to the Docx.
-    """
+    """Parses Markdown table lines and builds a real Word table."""
     try:
-        # Filter out the separator line (e.g., |---|---|)
+        # Filter out separator lines (like |---|---|)
         rows = [row for row in table_lines if '---' not in row]
-        
-        if not rows:
-            return
+        if not rows: return
 
-        # Determine dimensions
-        # Split by '|' and remove empty first/last elements created by split
+        # Calculate columns based on header
         header_cells = [c.strip() for c in rows[0].split('|') if c.strip() != '']
         num_cols = len(header_cells)
         
-        # Create Table in Word
+        # Create Table
         table = doc.add_table(rows=len(rows), cols=num_cols)
-        table.style = 'Table Grid' # Gives it borders
+        table.style = 'Table Grid'
         
         for i, row_text in enumerate(rows):
-            # Parse cells
             cells_text = [c.strip() for c in row_text.split('|') if c.strip() != '']
-            
-            # Safe fill (prevent index errors if row is malformed)
             for j, text in enumerate(cells_text):
                 if j < num_cols:
                     table.cell(i, j).text = text
-    except Exception:
-        # Fallback: if table parsing fails, just write lines
+    except:
+        # Fallback if parsing fails
         for line in table_lines:
             doc.add_paragraph(line)
 
 def generate_docx(text_content):
     doc = Document()
-    
-    # Iterate through lines to detect tables vs text
     lines = text_content.split('\n')
     table_buffer = []
     
     for line in lines:
         stripped = line.strip()
         
-        # Check if line looks like a table row
+        # Detect Table Rows
         if stripped.startswith('|') and stripped.endswith('|'):
             table_buffer.append(stripped)
         else:
-            # If we were building a table, convert it now
+            # Write buffered table if we just finished one
             if table_buffer:
                 create_table_from_markdown(doc, table_buffer)
-                table_buffer = [] # Reset buffer
+                table_buffer = [] 
             
-            # Process normal text
+            # Normal Text Processing
             if line.startswith('# '): doc.add_heading(line[2:], level=1)
             elif line.startswith('## '): doc.add_heading(line[2:], level=2)
             elif line.startswith('### '): doc.add_heading(line[2:], level=3)
@@ -102,7 +88,7 @@ def generate_docx(text_content):
             elif stripped:
                 doc.add_paragraph(line)
     
-    # Catch any table at the very end of the file
+    # Check for table at end of file
     if table_buffer:
         create_table_from_markdown(doc, table_buffer)
 
@@ -120,13 +106,13 @@ def main():
             st.success("API Key Active")
         except:
             api_key = st.text_input("Gemini API Key", type="password")
-
-        st.info("Tip: If tables look messy in the text box, don't worry! They will look perfect in the downloaded Word Doc.")
+            
+        st.info("Using Model: **Gemini 3 Pro Preview**")
 
     # 2. Header
-    st.markdown('<div class="main-header">DocuGenius Pro 🚀</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">DocuGenius Pro (Gemini 3) 🚀</div>', unsafe_allow_html=True)
 
-    # 3. Session State Management
+    # 3. Session State
     if 'generated_content' not in st.session_state:
         st.session_state.generated_content = ""
     if 'pdf_bytes' not in st.session_state:
@@ -136,29 +122,30 @@ def main():
     if not st.session_state.generated_content:
         uploaded_file = st.file_uploader("Upload PDF (Tables supported)", type=['pdf'])
         
-        if uploaded_file and st.button("🚀 Convert Now", type="primary"):
+        if uploaded_file and st.button("🚀 Convert with Gemini 3", type="primary"):
             if not api_key:
                 st.error("Please enter an API Key.")
             else:
                 genai.configure(api_key=api_key)
-                
-                # Save bytes immediately to session state so we don't lose them
                 st.session_state.pdf_bytes = uploaded_file.getvalue()
                 
-                with st.spinner("🤖 Analyzing layout and extracting tables..."):
+                with st.spinner("Gemini 3 Pro is processing tables & text..."):
                     try:
-                        model = genai.GenerativeModel('gemini-1.5-pro') # 1.5 Pro is excellent for tables
+                        # --- STRICTLY USING GEMINI 3 PRO PREVIEW ---
+                        model = genai.GenerativeModel('gemini-3-pro-preview')
                         
                         prompt = """
-                        Extract all text from this PDF into clean Markdown.
-                        CRITICAL INSTRUCTIONS FOR TABLES:
-                        1. Detect all tables and represent them using standard Markdown table syntax.
-                        2. Example format:
-                        | Header 1 | Header 2 |
-                        |---|---|
-                        | Row 1 Col 1 | Row 1 Col 2 |
-                        3. Ensure every row starts and ends with a pipe character (|).
-                        4. Preserve all headers (#) and lists (*).
+                        You are a document conversion engine. Extract all content from this PDF.
+                        
+                        STRICT RULES:
+                        1. Output clean Markdown.
+                        2. TABLES: specific attention to tables. You MUST format them as Markdown tables.
+                           Example:
+                           | Header 1 | Header 2 |
+                           |---|---|
+                           | Data 1   | Data 2   |
+                        3. Do not miss any rows.
+                        4. Do not include conversational text like "Here is the output".
                         """
 
                         response = model.generate_content([
@@ -170,24 +157,23 @@ def main():
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
+                        if "404" in str(e):
+                             st.warning("Gemini 3 Pro Preview not found. Check if your API key has access to 'gemini-3-pro-preview'.")
 
     # 5. Editor / Split View
     else:
         col1, col2 = st.columns([1, 1])
 
         with col1:
-            st.subheader("📄 Original File")
+            st.subheader("📄 Original PDF")
             if st.session_state.pdf_bytes:
                 display_pdf(st.session_state.pdf_bytes)
-            else:
-                st.warning("PDF preview unavailable (Session Cleared)")
 
         with col2:
-            st.subheader("📝 Editable Content")
+            st.subheader("📝 Editable Text (Markdown)")
             
-            # The Text Area
             edited_text = st.text_area(
-                "Edit Markdown (Tables appear as text here but convert to grids in Word):", 
+                "Edit content here:", 
                 value=st.session_state.generated_content, 
                 height=800
             )
@@ -195,13 +181,12 @@ def main():
             
             st.divider()
             
-            # Download Logic
             docx_data = generate_docx(st.session_state.generated_content)
             
             st.download_button(
-                label="⬇️ Download as Word Doc", 
+                label="⬇️ Download Word Doc", 
                 data=docx_data, 
-                file_name="converted_tables.docx", 
+                file_name="converted_gemini3.docx", 
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 type="primary",
                 use_container_width=True
