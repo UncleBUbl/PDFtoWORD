@@ -11,7 +11,7 @@ st.title("📄 AI PDF to Editable Word Doc")
 api_key = st.text_input("Enter your Gemini API Key", type="password")
 
 if api_key:
-    genai.configure(api_key=aAIzaSyCz3lqRAfl6A1URitgiFWxnh0bdHLiQQXY)
+    genai.configure(api_key=api_key)
 
     # 2. File Upload
     uploaded_file = st.file_uploader("Upload your PDF", type=['pdf'])
