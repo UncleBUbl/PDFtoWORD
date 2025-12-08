@@ -4,11 +4,16 @@ from docx import Document
 from io import BytesIO
 
 # 1. Configuration
-st.set_page_config(page_title="PDF to Word Converter", layout="wide")
-st.title("📄 AI PDF to Editable Word Doc")
+st.set_page_config(page_title="PDF to Word (Gemini 3 Pro)", layout="wide")
+st.title("📄 PDF to Word Converter (Powered by Gemini 3)")
 
-# API Key Input
-api_key = st.text_input("Enter your Gemini API Key", type="password")
+# Securely get API Key from Streamlit Secrets
+# Make sure you have added GOOGLE_API_KEY in your Streamlit Cloud secrets!
+try:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+except (FileNotFoundError, KeyError):
+    # Fallback for local testing if secrets.toml isn't set up
+    api_key = st.text_input("Enter your Gemini API Key", type="password")
 
 if api_key:
     genai.configure(api_key=api_key)
@@ -17,23 +22,25 @@ if api_key:
     uploaded_file = st.file_uploader("Upload your PDF", type=['pdf'])
 
     if uploaded_file and st.button("Convert to Word"):
-        with st.spinner("AI is reading and converting..."):
+        with st.spinner("Gemini 3 Pro is analyzing and converting..."):
             try:
-                # Load Model
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                # --- UPDATE: Using Gemini 3 Pro Preview ---
+                # Note: If 'gemini-3-pro-preview' gives a 404, try 'gemini-exp-1121' 
+                # or check the available models list.
+                model = genai.GenerativeModel('gemini-3-pro-preview')
 
-                # Prepare the PDF for the API
+                # Prepare PDF data
                 pdf_data = uploaded_file.getvalue()
                 
-                # Prompt the AI
+                # Prompt
                 prompt = """
-                You are a document conversion expert. 
-                Extract the content from this PDF file. 
-                Keep headers, bullet points, and paragraphs clear. 
-                Do not include any introductory text like "Here is the content", just give me the raw text content.
+                Extract all text from this PDF document.
+                - specific formatting: Use standard Markdown (# for headers, * for bullets).
+                - preservation: Keep the original flow and structure.
+                - output: strictly the content, no intro/outro filler.
                 """
                 
-                # Generate Content
+                # Generate
                 response = model.generate_content([
                     {'mime_type': 'application/pdf', 'data': pdf_data},
                     prompt
@@ -45,26 +52,43 @@ if api_key:
                 doc = Document()
                 doc.add_heading('Converted Document', 0)
                 
-                # Simple logic to add text to Word doc (splits by newlines)
-                for paragraph in extracted_text.split('\n'):
-                    if paragraph.strip():
-                        doc.add_paragraph(paragraph)
+                for line in extracted_text.split('\n'):
+                    # Simple markdown-to-word logic
+                    if line.startswith('# '):
+                        doc.add_heading(line[2:], level=1)
+                    elif line.startswith('## '):
+                        doc.add_heading(line[2:], level=2)
+                    elif line.startswith('### '):
+                        doc.add_heading(line[2:], level=3)
+                    elif line.strip():
+                        doc.add_paragraph(line)
 
-                # Save to a buffer (memory)
+                # Save to buffer
                 bio = BytesIO()
                 doc.save(bio)
                 
-                # 4. Download Button
+                # 4. Download
                 st.download_button(
                     label="⬇️ Download Word Doc",
                     data=bio.getvalue(),
-                    file_name="converted_doc.docx",
+                    file_name="converted_gemini3.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
                 
-                # Show preview
-                st.subheader("Preview:")
-                st.markdown(extracted_text)
+                # Preview
+                with st.expander("View Extracted Text"):
+                    st.markdown(extracted_text)
 
             except Exception as e:
                 st.error(f"An error occurred: {e}")
+                
+                # Troubleshooting Helper: List available models if 404 persists
+                if "404" in str(e):
+                    st.warning("⚠️ Troubleshooting: Attempting to list available models...")
+                    try:
+                        st.write("Available models for your key:")
+                        for m in genai.list_models():
+                            if 'generateContent' in m.supported_generation_methods:
+                                st.code(m.name)
+                    except:
+                        st.write("Could not list models. Check your API Key.")
