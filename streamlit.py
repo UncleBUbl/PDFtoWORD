@@ -2,21 +2,23 @@ import streamlit as st
 import google.generativeai as genai
 from docx import Document
 from io import BytesIO
-import base64
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="DocuGenius Pro (Gemini 3)", page_icon="⚡")
+st.set_page_config(layout="centered", page_title="DocuGenius Pro", page_icon="⚡")
 
 # --- CSS STYLING ---
 st.markdown("""
 <style>
     .stApp { background-color: #f8f9fa; }
     
-    /* Monospace font for editor so tables align visually */
+    /* Editor Styling */
     .stTextArea textarea { 
         font-family: 'Courier New', monospace; 
-        font-size: 14px; 
-        line-height: 1.5;
+        font-size: 15px; 
+        line-height: 1.6;
+        background-color: #ffffff;
+        color: #333;
+        border: 1px solid #ddd;
     }
     
     .main-header { 
@@ -24,17 +26,16 @@ st.markdown("""
         font-weight: 800; 
         color: #1a73e8; 
         text-align: center; 
+        margin-bottom: 1rem;
+    }
+    
+    .sub-header {
+        text-align: center;
+        color: #666;
         margin-bottom: 2rem;
     }
 </style>
 """, unsafe_allow_html=True)
-
-# --- HELPER: Display PDF ---
-def display_pdf(pdf_bytes):
-    """Displays PDF using <embed> to prevent losing it on refresh."""
-    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800px" type="application/pdf">'
-    st.markdown(pdf_display, unsafe_allow_html=True)
 
 # --- HELPER: Advanced Markdown Tables to Docx ---
 def create_table_from_markdown(doc, table_lines):
@@ -110,26 +111,24 @@ def main():
         st.info("Using Model: **Gemini 3 Pro Preview**")
 
     # 2. Header
-    st.markdown('<div class="main-header">DocuGenius Pro (Gemini 3) 🚀</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">DocuGenius Pro</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Convert PDFs to Word (with Tables)</div>', unsafe_allow_html=True)
 
     # 3. Session State
     if 'generated_content' not in st.session_state:
         st.session_state.generated_content = ""
-    if 'pdf_bytes' not in st.session_state:
-        st.session_state.pdf_bytes = None
 
     # 4. Upload View
     if not st.session_state.generated_content:
-        uploaded_file = st.file_uploader("Upload PDF (Tables supported)", type=['pdf'])
+        uploaded_file = st.file_uploader("Upload PDF", type=['pdf'])
         
-        if uploaded_file and st.button("🚀 Convert with Gemini 3", type="primary"):
+        if uploaded_file and st.button("🚀 Convert PDF", type="primary", use_container_width=True):
             if not api_key:
-                st.error("Please enter an API Key.")
+                st.error("Please enter an API Key in the sidebar.")
             else:
                 genai.configure(api_key=api_key)
-                st.session_state.pdf_bytes = uploaded_file.getvalue()
                 
-                with st.spinner("Gemini 3 Pro is processing tables & text..."):
+                with st.spinner("Gemini 3 Pro is processing..."):
                     try:
                         # --- STRICTLY USING GEMINI 3 PRO PREVIEW ---
                         model = genai.GenerativeModel('gemini-3-pro-preview')
@@ -149,7 +148,7 @@ def main():
                         """
 
                         response = model.generate_content([
-                            {'mime_type': 'application/pdf', 'data': st.session_state.pdf_bytes},
+                            {'mime_type': 'application/pdf', 'data': uploaded_file.getvalue()},
                             prompt
                         ])
                         
@@ -158,31 +157,30 @@ def main():
                     except Exception as e:
                         st.error(f"Error: {e}")
                         if "404" in str(e):
-                             st.warning("Gemini 3 Pro Preview not found. Check if your API key has access to 'gemini-3-pro-preview'.")
+                             st.warning("Model not found. Check your API key or try 'gemini-1.5-pro' if Gemini 3 is not enabled.")
 
-    # 5. Editor / Split View
+    # 5. Editor View (Full Width)
     else:
+        st.success("✅ Conversion Complete! Edit below.")
+        
+        edited_text = st.text_area(
+            "📝 Edit your document (Markdown format):", 
+            value=st.session_state.generated_content, 
+            height=600
+        )
+        st.session_state.generated_content = edited_text
+        
+        st.divider()
+        
         col1, col2 = st.columns([1, 1])
-
+        
         with col1:
-            st.subheader("📄 Original PDF")
-            if st.session_state.pdf_bytes:
-                display_pdf(st.session_state.pdf_bytes)
-
+             if st.button("🔄 Start New File", use_container_width=True):
+                st.session_state.generated_content = ""
+                st.rerun()
+        
         with col2:
-            st.subheader("📝 Editable Text (Markdown)")
-            
-            edited_text = st.text_area(
-                "Edit content here:", 
-                value=st.session_state.generated_content, 
-                height=800
-            )
-            st.session_state.generated_content = edited_text
-            
-            st.divider()
-            
             docx_data = generate_docx(st.session_state.generated_content)
-            
             st.download_button(
                 label="⬇️ Download Word Doc", 
                 data=docx_data, 
@@ -191,11 +189,6 @@ def main():
                 type="primary",
                 use_container_width=True
             )
-            
-            if st.button("🔄 Start New File", use_container_width=True):
-                st.session_state.generated_content = ""
-                st.session_state.pdf_bytes = None
-                st.rerun()
 
 if __name__ == "__main__":
     main()
