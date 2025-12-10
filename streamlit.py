@@ -54,10 +54,17 @@ def create_table_from_markdown(doc, table_lines):
         table.style = 'Table Grid'
         
         for i, row_text in enumerate(rows):
+            # Split by pipe
             cells_text = [c.strip() for c in row_text.split('|') if c.strip() != '']
+            
             for j, text in enumerate(cells_text):
                 if j < num_cols:
-                    table.cell(i, j).text = text
+                    # --- FIX: CLEANING THE TEXT ---
+                    # Replace <br> tags with real newlines for Word
+                    clean_text = text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+                    
+                    # Set the text in the cell
+                    table.cell(i, j).text = clean_text
     except:
         # Fallback if parsing fails
         for line in table_lines:
@@ -112,7 +119,7 @@ def main():
 
     # 2. Header
     st.markdown('<div class="main-header">DocuGenius Pro</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Convert PDFs to Word (with Tables)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Convert PDFs to Word (Tables Fixed)</div>', unsafe_allow_html=True)
 
     # 3. Session State
     if 'generated_content' not in st.session_state:
@@ -139,11 +146,7 @@ def main():
                         STRICT RULES:
                         1. Output clean Markdown.
                         2. TABLES: specific attention to tables. You MUST format them as Markdown tables.
-                           Example:
-                           | Header 1 | Header 2 |
-                           |---|---|
-                           | Data 1   | Data 2   |
-                        3. Do not miss any rows.
+                        3. CONTENT: Do NOT use HTML tags like <br> inside tables if possible. Just use spaces.
                         4. Do not include conversational text like "Here is the output".
                         """
 
@@ -184,7 +187,7 @@ def main():
             st.download_button(
                 label="⬇️ Download Word Doc", 
                 data=docx_data, 
-                file_name="converted_gemini3.docx", 
+                file_name="converted_clean.docx", 
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 type="primary",
                 use_container_width=True
